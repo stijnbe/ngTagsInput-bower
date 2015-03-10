@@ -1,11 +1,11 @@
 /*!
- * ngTagsInput v2.2.0
+ * ngTagsInput v2.3.1
  * http://mbenford.github.io/ngTagsInput
  *
  * Copyright (c) 2013-2015 Michael Benford
  * License: MIT
  *
- * Generated at 2015-03-02 01:54:50 -0300
+ * Generated at 2015-03-10 10:57:51 +0100
  */
 (function() {
 'use strict';
@@ -61,12 +61,16 @@ var tagsInput = angular.module('ngTagsInput', []);
  *                                                   When this flag is true, addOnEnter, addOnComma, addOnSpace, addOnBlur and
  *                                                   allowLeftoverText values are ignored.
  * @param {boolean=} [spellcheck=true] Flag indicating whether the browser's spellcheck is enabled for the input field or not.
+ * @param {expression} customTagClasses Expression to provide the tag with custom classes for styling. The tag is available as $tag. This method must return an array of classes.
+ * @param {expression} onTagAdding Expression to evaluate that will be invoked before adding a new tag. The new tag is available as $tag. This method must return either true or false. If false, the tag will not be added.
  * @param {expression} onTagAdded Expression to evaluate upon adding a new tag. The new tag is available as $tag.
  * @param {expression} onInvalidTag Expression to evaluate when a tag is invalid. The invalid tag is available as $tag.
+ * @param {expression} onTagRemoving Expression to evaluate that will be invoked before removing a tag. The tag is available as $tag. This method must return either true or false. If false, the tag will not be removed.
  * @param {expression} onTagRemoved Expression to evaluate upon removing an existing tag. The removed tag is available as $tag.
  */
-tagsInput.directive('tagsInput', ["$timeout","$document","tagsInputConfig","tiUtil", function($timeout, $document, tagsInputConfig, tiUtil) {
-    function TagList(options, events) {
+tagsInput.directive('tagsInput', ["$timeout", "$document", "tagsInputConfig", "tiUtil", function($timeout, $document, tagsInputConfig, tiUtil) {
+
+    function TagList(options, events, onTagAdding, onTagRemoving) {
         var self = {}, getTagText, setTagText, tagIsValid;
 
         getTagText = function(tag) {
@@ -84,7 +88,8 @@ tagsInput.directive('tagsInput', ["$timeout","$document","tagsInputConfig","tiUt
                    tagText.length >= options.minLength &&
                    tagText.length <= options.maxLength &&
                    options.allowedTagsPattern.test(tagText) &&
-                   !tiUtil.findInObjectArray(self.items, tag, options.displayProperty);
+                   !tiUtil.findInObjectArray(self.items, tag, options.displayProperty) &&
+                   onTagAdding({ $tag: tag });
         };
 
         self.items = [];
@@ -116,9 +121,13 @@ tagsInput.directive('tagsInput', ["$timeout","$document","tagsInputConfig","tiUt
         };
 
         self.remove = function(index) {
-            var tag = self.items.splice(index, 1)[0];
-            events.trigger('tag-removed', { $tag: tag });
-            return tag;
+            var tag = self.items[index];
+
+            if (onTagRemoving({ $tag: tag }))  {
+                self.items.splice(index, 1);
+                events.trigger('tag-removed', { $tag: tag });
+                return tag;
+            }
         };
 
         self.removeLast = function() {
@@ -147,14 +156,17 @@ tagsInput.directive('tagsInput', ["$timeout","$document","tagsInputConfig","tiUt
         require: 'ngModel',
         scope: {
             tags: '=ngModel',
+            customTagClasses: '&',
+            onTagAdding: '&',
             onTagAdded: '&',
             onInvalidTag: '&',
+            onTagRemoving: '&',
             onTagRemoved: '&'
         },
         replace: false,
         transclude: true,
         templateUrl: 'ngTagsInput/tags-input.html',
-        controller: ["$scope","$attrs","$element", function($scope, $attrs, $element) {
+        controller: ["$scope", "$attrs", "$element", function($scope, $attrs, $element) {
             $scope.events = tiUtil.simplePubSub();
 
             tagsInputConfig.load('tagsInput', $scope, $attrs, {
@@ -181,7 +193,9 @@ tagsInput.directive('tagsInput', ["$timeout","$document","tagsInputConfig","tiUt
                 spellcheck: [Boolean, true]
             });
 
-            $scope.tagList = new TagList($scope.options, $scope.events);
+            $scope.tagList = new TagList($scope.options, $scope.events,
+                tiUtil.handleUndefinedResult($scope.onTagAdding, true),
+                tiUtil.handleUndefinedResult($scope.onTagRemoving, true));
 
             this.registerAutocomplete = function() {
                 var input = $element.find('input');
@@ -235,6 +249,18 @@ tagsInput.directive('tagsInput', ["$timeout","$document","tagsInputConfig","tiUt
 
             scope.getDisplayText = function(tag) {
                 return tiUtil.safeToString(tag[options.displayProperty]);
+            };
+
+            scope.getTagClasses = function(tag) {
+              var classes = [];
+              if(tag === tagList.selected){
+                classes.push('selected');
+              }
+              var customClasses = scope.customTagClasses();
+              if(customClasses){
+                classes = classes.concat(customClasses);
+              }
+              return classes;
             };
 
             scope.track = function(tag) {
@@ -399,7 +425,7 @@ tagsInput.directive('tagsInput', ["$timeout","$document","tagsInputConfig","tiUt
  * @param {boolean=} [selectFirstMatch=true] Flag indicating that the first match will be automatically selected once
  *                                           the suggestion list is shown.
  */
-tagsInput.directive('autoComplete', ["$document","$timeout","$sce","$q","tagsInputConfig","tiUtil", function($document, $timeout, $sce, $q, tagsInputConfig, tiUtil) {
+tagsInput.directive('autoComplete', ["$document", "$timeout", "$sce", "$q", "tagsInputConfig", "tiUtil", function($document, $timeout, $sce, $q, tagsInputConfig, tiUtil) {
     function SuggestionList(loadFn, options) {
         var self = {}, getDifference, lastPromise;
 
@@ -745,9 +771,10 @@ tagsInput.provider('tagsInputConfig', function() {
     /***
      * @ngdoc method
      * @name setTextAutosizeThreshold
+     * @description Sets the threshold used by the tagsInput directive to re-size the inner input field element based on its contents.
      * @methodOf tagsInputConfig
      *
-     * @param {number} threshold Threshold to be used by the tagsInput directive to re-size the input element based on its contents.
+     * @param {number} threshold Threshold value, in pixels.
      *
      * @returns {object} The service itself for chaining purposes.
      */
@@ -874,6 +901,13 @@ tagsInput.factory('tiUtil', ["$timeout", function($timeout) {
             .replace(/>/g, '&gt;');
     };
 
+    self.handleUndefinedResult = function(fn, valueIfUndefined) {
+        return function() {
+            var result = fn.apply(null, arguments);
+            return angular.isUndefined(result) ? valueIfUndefined : result;
+        };
+    };
+
     self.simplePubSub = function() {
         var events = {};
         return {
@@ -889,8 +923,7 @@ tagsInput.factory('tiUtil', ["$timeout", function($timeout) {
             trigger: function(name, args) {
                 var handlers = events[name] || [];
                 handlers.every(function(handler) {
-                    var retVal = handler.call(null, args);
-                    return angular.isUndefined(retVal) || retVal;
+                    return self.handleUndefinedResult(handler, true)(args);
                 });
                 return this;
             }
@@ -903,7 +936,7 @@ tagsInput.factory('tiUtil', ["$timeout", function($timeout) {
 /* HTML templates */
 tagsInput.run(["$templateCache", function($templateCache) {
     $templateCache.put('ngTagsInput/tags-input.html',
-    "<div class=\"host\" tabindex=\"-1\" ng-click=\"eventHandlers.host.click()\" ti-transclude-append=\"\"><div class=\"tags\" ng-class=\"{focused: hasFocus}\"><ul class=\"tag-list\"><li class=\"tag-item\" ng-repeat=\"tag in tagList.items track by track(tag)\" ng-class=\"{ selected: tag == tagList.selected }\"><span ng-bind=\"getDisplayText(tag)\"></span> <a class=\"remove-button\" ng-click=\"tagList.remove($index)\" ng-bind=\"options.removeTagSymbol\"></a></li></ul><input class=\"input\" ng-model=\"newTag.text\" ng-change=\"eventHandlers.input.change(newTag.text)\" ng-keydown=\"eventHandlers.input.keydown($event)\" ng-focus=\"eventHandlers.input.focus($event)\" ng-blur=\"eventHandlers.input.blur($event)\" ng-paste=\"eventHandlers.input.paste($event)\" ng-trim=\"false\" ng-class=\"{'invalid-tag': newTag.invalid}\" ti-bind-attrs=\"{type: options.type, placeholder: options.placeholder, tabindex: options.tabindex, spellcheck: options.spellcheck}\" ti-autosize=\"\"></div></div>"
+    "<div class=\"host\" tabindex=\"-1\" ng-click=\"eventHandlers.host.click()\" ti-transclude-append><div class=\"tags\" ng-class=\"{focused: hasFocus}\"><ul class=\"tag-list\"><li class=\"tag-item\" ng-repeat=\"tag in tagList.items track by track(tag)\" ng-class=\"getTagClasses(tag)\"><span ng-bind=\"getDisplayText(tag)\"></span> <a class=\"remove-button\" ng-click=\"tagList.remove($index)\" ng-bind=\"options.removeTagSymbol\"></a></li></ul><input class=\"input\" ng-model=\"newTag.text\" ng-change=\"eventHandlers.input.change(newTag.text)\" ng-keydown=\"eventHandlers.input.keydown($event)\" ng-focus=\"eventHandlers.input.focus($event)\" ng-blur=\"eventHandlers.input.blur($event)\" ng-paste=\"eventHandlers.input.paste($event)\" ng-trim=\"false\" ng-class=\"{'invalid-tag': newTag.invalid}\" ti-bind-attrs=\"{type: options.type, placeholder: options.placeholder, tabindex: options.tabindex, spellcheck: options.spellcheck}\" ti-autosize></div></div>"
   );
 
   $templateCache.put('ngTagsInput/auto-complete.html',
