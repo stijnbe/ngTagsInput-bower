@@ -5,7 +5,7 @@
  * Copyright (c) 2013-2015 Michael Benford
  * License: MIT
  *
- * Generated at 2015-03-10 10:57:51 +0100
+ * Generated at 2015-03-10 11:53:21 +0100
  */
 (function() {
 'use strict';
@@ -256,7 +256,7 @@ tagsInput.directive('tagsInput', ["$timeout", "$document", "tagsInputConfig", "t
               if(tag === tagList.selected){
                 classes.push('selected');
               }
-              var customClasses = scope.customTagClasses();
+              var customClasses = scope.customTagClasses({ $tag: tag });
               if(customClasses){
                 classes = classes.concat(customClasses);
               }
